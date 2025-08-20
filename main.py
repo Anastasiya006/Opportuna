@@ -38,34 +38,30 @@ cur.execute("CREATE TABLE IF NOT EXISTS seen (id TEXT PRIMARY KEY)")
 conn.commit()
 
 
+
 def get_unique_id(listing: dict) -> str:
     """
-    Generate a unique identifier for a job listing to prevent duplicates.
+    Get the unique identifier for a job listing from the repository data.
     
     Args:
         listing (dict): Job listing data from JSON API
         
     Returns:
-        str: Unique identifier string or None if invalid data
+        str: Repository-provided unique identifier or None if missing
         
-    The ID format is: "company::title::location"
-    This ensures we can detect the same job even if other fields change.
+    Uses the 'id' field provided by the repository, which is a UUID that
+    remains stable even if job details change.
     """
 
-    # Extract necessary fields from the listing
-    company = listing.get('company_name')
-    title = listing.get('title')
-    locations = listing.get('locations')
-
-    # Validate that all required fields are present
-    if not company or not title or not locations:
+    # Use the repository-provided ID field
+    repo_id = listing.get('id')
+    
+    # Validate that ID is present and not empty
+    if not repo_id or not isinstance(repo_id, str) or repo_id.strip() == "":
         return None
+    
+    return repo_id.strip()
 
-    # Handle location data, use the first location if it's a list
-    location = locations[0] if isinstance(locations, list) and locations else "N/A"
-
-    # Create unique identifier
-    return f"{company}::{title}::{location}"
 
 
 def fetch_listings() -> list:
@@ -90,12 +86,14 @@ def fetch_listings() -> list:
             
             # Parse JSON and extend results list
             results.extend(resp.json())
+            time.sleep(2)
             
         except requests.exceptions.RequestException as e:
             print(f"Error fetching from {url}: {e}")
             continue
     
     return results
+
 
 
 def send_email(subject: str, body: str):
@@ -120,6 +118,7 @@ def send_email(subject: str, body: str):
     with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
         server.login(FROM_EMAIL, EMAIL_PASSWORD)
         server.send_message(msg)
+
 
 
 def add_to_notion(listing):
@@ -202,7 +201,7 @@ def check_for_new_jobs():
 
     # Fetch all current job listings
     listings = fetch_listings()
-    print(f"Fetched {len(listings)} listings")  # debug
+    print(f"Checking {len(listings)} listings for new jobs...")
 
     # Process each job listing
     for l in listings:
@@ -211,14 +210,11 @@ def check_for_new_jobs():
 
         # Skip listings with invalid/incomplete data
         if not uid:
-            print("Skipping invalid listing:", l)
             continue
 
         # Check if the job has already been seen
         cur.execute("SELECT 1 FROM seen WHERE id=?", (uid,))
         if not cur.fetchone():
-            print(f"New listing found: {uid}")  # debug
-
             # Combine all locations into a comma-separated string
             locations = l.get('locations')
             location_str = "; ".join(locations) if locations and isinstance(locations, list) else "N/A"
@@ -271,6 +267,8 @@ def check_for_new_jobs():
                 
                 # Add to Notion database
                 add_to_notion(l)
+
+                print(f"Job tracked: {l.get('company_name')} - {l.get('title')}")
                 
                 # Mark as seen in local database to prevent future duplicates
                 cur.execute("INSERT INTO seen(id) VALUES (?)", (uid,))
@@ -279,9 +277,6 @@ def check_for_new_jobs():
             except Exception as e:
                 print(f"Error processing job {uid}: {e}")
 
-        else:
-            # Job already seen, skip processing
-            print(f"Already seen: {uid}")
 
 
 if __name__ == "__main__":
@@ -320,6 +315,3 @@ if __name__ == "__main__":
     # Close database connection on exit
     conn.close()
     print("Opportuna stopped. Database connection closed.")
-
-
- # todo make notion add to bottom not top of list
