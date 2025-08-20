@@ -1,0 +1,9 @@
+# Core dependencies for Opportuna job monitoring bot
+requests>=2.31.0
+python-dotenv>=1.0.0
+
+# Optional: For better error handling and logging
+urllib3>=2.0.0
+
+# Optional: For enhanced security (updates built-in modules)
+certifi>=2023.7.22
